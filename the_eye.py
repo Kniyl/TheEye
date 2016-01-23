@@ -1,8 +1,12 @@
 import sys
+import math
 import facebook
 import argparse
 from pprint import pformat as pretty_string
 from getpass import getpass
+
+
+COMMENT_PER_QUERY = 999
 
 
 def get_secret(secret=None):
@@ -16,12 +20,12 @@ class FacebookComments(object):
         self.graph = facebook.GraphAPI(token)
 
     def analyse(self, object_id, output_file):
-        for comment in self.fetch_comments(object_id + '/comments'):
+        for comment in self._fetch(object_id + '/comments'):
             output_file.write(comment)
             output_file.write('\n')
 
-    def fetch_comments(self, path):
-        response = self.graph.get_object(path, limit=1000, summary=True, filter='stream')
+    def _fetch(self, path):
+        response = self.graph.get_object(path, limit=COMMENT_PER_QUERY, summary=True, filter='stream')
         total = response['summary']['total_count']
         count = 0
 
@@ -36,21 +40,25 @@ class FacebookComments(object):
                 break
             else:
                 try:
-                    response = self.graph.get_object(path, limit=1000, after=after, filter='stream')
+                    response = self.graph.get_object(path, limit=COMMENT_PER_QUERY, filter='stream', after=after)
                 except facebook.GraphAPIError as e:
                     print 'Error occured (', e, '), stopping after', count, 'comments.'
                     break
 
 
+class StringOrStdinAction(argparse.Action):
+    def __call__(self, parser, namespace, value, option=None):
+        setattr(namespace, self.dest, value if value != '-' else raw_input())
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('-o', '--output', type=argparse.FileType('w'), default=sys.stdout)
-    parser.add_argument('-s', '--app-secret')
-    parser.add_argument('-a', '--app-id')
-    parser.add_argument('token', nargs='?')
+    parser.add_argument('token', action=StringOrStdinAction)
+    parser.add_argument('object')
 
     args = parser.parse_args()
 
-    comments = FacebookComments(args.token, args.app_id, args.app_secret)
-    data = comments.analyse('10151775534413086', args.output)
+    comments = FacebookComments(args.token)
+    data = comments.analyse(args.object, args.output)
     args.output.close()
