@@ -12,9 +12,10 @@ parser which queries the Facebook Graph API to retrieve comments
 associated to an object.
 """
 
+import os.path
 import argparse
 import datetime
-from sys import stdout
+from sys import stdout, stderr
 from collections import Counter, OrderedDict
 from itertools import takewhile, chain, izip, repeat, count
 
@@ -59,6 +60,8 @@ class TimeSeries(Counter):
          - up to days_focussed days before reference_date;
          - each month between the oldest and the newest date stored;
          - each year between the oldest and the newest date stored.
+
+        Yield OrderedDicts for each scale.
         """
 
         if not self:
@@ -133,10 +136,10 @@ class TimeSeries(Counter):
             except KeyError:
                 pass
 
-        yield hourly_data.iteritems()
-        yield dayly_data.iteritems()
-        yield monthly_data.iteritems()
-        yield yearly_data.iteritems()
+        yield hourly_data
+        yield dayly_data
+        yield monthly_data
+        yield yearly_data
 
 
 class FacebookComments(object):
@@ -234,17 +237,8 @@ class Prettyfier(object):
             (day_name, 'Month before {}'.format(day_name), 'By month', 'By year')
         )
 
-        self._write_header()
         self._write_data(izip(graph_names, statistics))
-        self._write_footer()
-
-    def _write_header(self):
-        """Convenience method for subclassing"""
-        pass
-
-    def _write_footer(self):
-        """Convenience method for subclassing"""
-        pass
+        self.output.flush()
 
     def _write_data(self, data_iterator):
         """Format the provided data into a suitable representation and
@@ -253,12 +247,106 @@ class Prettyfier(object):
 
         for event, data in data_iterator:
             self.output.write('{}:\n'.format(event))
-            for date, amount in data:
-                self.output.write('\t{}:\t{}\n'.format(date, amount))
+            for date, amount in data.iteritems():
+                self.output.write('    {}:    {}\n'.format(date, amount))
 
 
 class HTMLPrettyfier(Prettyfier):
-    pass # TODO redifine _write_xxx(self)
+    """Utility class to output TimeSeries data into an HTML file"""
+
+    def _write_data(self, data_iterator):
+        write = self.output.write
+
+        write('<!doctype html>\n')
+        write('<html lang="en">\n')
+        write('  <head>\n')
+        write('    <title>Comments for Facebook object</title>\n')
+        write('    <style>\n')
+        write('      html, body {background: white; color: black;')
+        write(' width: 100%; height: 100%; padding: 0px; margin: 0px;}\n')
+        write('      .wrapper {width: 80%; height: 80%; padding: 0px; margin: 0px auto;}\n')
+        write('      canvas {width: 100%; height: 100%;}\n')
+        write('      h1 {text-align: center; padding: 0px; margin: 50px 0px;}\n')
+        write('    </style>\n')
+
+        # Minified scripts have so long lines, they lie in their own file
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        with open(os.path.join(script_dir, 'scripts.html')) as f:
+            for line in f:
+                write(line)
+
+        write('    <script type="text/javascript">\n')
+        write('      function load() {\n')
+        write('        Chart.defaults.global["responsive"] = true;\n')
+
+        main_label, data = next(data_iterator)
+
+        write('        var ctx = document.getElementById("chart-hours").getContext("2d");\n')
+        write('        var hour_data = {\n')
+        write('          labels: {},\n'.format([d.strftime('%H:%M') for d in data]))
+        write('          datasets: [{\n')
+        write('            fillColor: "rgba(20, 100, 250, 0.2)",\n')
+        write('            strokeColor: "rgba(20, 100, 250, 1)",\n')
+        write('            data: {}\n'.format(data.values()))
+        write('          }]\n')
+        write('        }\n')
+        write('        var hour_chart = new Chart(ctx).Line(hour_data, {})\n')
+
+        days_label, data = next(data_iterator)
+
+        write('        ctx = document.getElementById("chart-days").getContext("2d");\n')
+        write('        var day_data = {\n')
+        write('          labels: {},\n'.format([d.strftime('%d %b') for d in data]))
+        write('          datasets: [{\n')
+        write('            fillColor: "rgba(20, 100, 250, 0.2)",\n')
+        write('            strokeColor: "rgba(20, 100, 250, 1)",\n')
+        write('            data: {}\n'.format(data.values()))
+        write('          }]\n')
+        write('        }\n')
+        write('        var day_chart = new Chart(ctx).Line(day_data, {})\n')
+
+        months_label, data = next(data_iterator)
+
+        write('        ctx = document.getElementById("chart-months").getContext("2d");\n')
+        write('        var month_data = {\n')
+        write('          labels: {},\n'.format([d.strftime('%b %Y') for d in data]))
+        write('          datasets: [{\n')
+        write('            fillColor: "rgba(20, 100, 250, 0.2)",\n')
+        write('            strokeColor: "rgba(20, 100, 250, 1)",\n')
+        write('            data: {}\n'.format(data.values()))
+        write('          }]\n')
+        write('        }\n')
+        write('        var month_chart = new Chart(ctx).Line(month_data, {})\n')
+
+        years_label, data = next(data_iterator)
+
+        write('        ctx = document.getElementById("chart-years").getContext("2d");\n')
+        write('        var year_data = [{\n')
+        write('          {}\n'.format('},{'.join('value: {}, label: {}'
+                                .format(v, k) for k, v in data.iteritems())))
+        write('        }]\n')
+        write('        var year_chart = new Chart(ctx).Doughnut(year_data, {})\n')
+        write('      }\n')
+        write('    </script>\n')
+
+        write('  </head>\n')
+        write('  <body onload="load();">\n')
+
+        helper = (
+            (main_label, 'hours'),
+            (days_label, 'days'),
+            (months_label, 'months'),
+            (years_label, 'years'),
+        )
+
+        for title, name in helper:
+            write('    <h1>{}</h1>\n'.format(title))
+            write('    <div class="wrapper">\n')
+            write('      <canvas id="chart-{}"></canvas>\n'.format(name))
+            write('    </div>\n')
+
+        write('  </body>\n')
+        write('</html>\n')
 
 
 def string_or_stdin(argument, raw_input=raw_input):
@@ -289,6 +377,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('-o', '--output', type=argparse.FileType('w'), default=stdout)
     parser.add_argument('-f', '--focus-on', '--find', type=custom_date, default=None)
+    parser.add_argument('-i', '--interactive', action='store_true')
     parser.add_argument('token', type=string_or_stdin)
     parser.add_argument('object')
 
@@ -301,7 +390,24 @@ if __name__ == '__main__':
         try:
             for comment_time in parser.analyze(args.object):
                 storage.parse_new_time(comment_time)
-        finally:
-            # Writte anything we fetched in case of error
-            output.new_document(storage.generate_statistics(args.focus_on))
-            # TODO: allow for interactive session
+        except Exception:
+            if not storage:
+                # Nothing fetched, abort now
+                raise
+
+            import traceback
+            traceback.print_exc()
+            print >> stderr, 'Some data were fetched, continuing analysis'
+
+        focus = args.focus_on
+        while True:
+            name = focus.strftime('%d %B %Y') if focus is not None else None
+            output.new_document(storage.generate_statistics(focus), name)
+
+            if not args.interactive:
+                break
+
+            try:
+                focus = custom_date(raw_input('Focus on a new date> '))
+            except ValueError:
+                break
