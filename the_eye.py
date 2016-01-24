@@ -1,5 +1,20 @@
+"""This module provides a wrapper around the facebook-sdk module in
+order to ease statistical analysis around comments on a given facebook
+object.
+
+Statistics are held in TimeSeries objects. They provide multi-scale
+time buckets which count events occuring at specific moments in time.
+They focus their analysis around a given point in time and also covers
+months and years of data.
+
+Data are fed into TimeSeries objects thanks to the FacebookComments
+parser which queries the Facebook Graph API to retrieve comments
+associated to an object.
+"""
+
 import argparse
 from sys import stdout
+from contextlib import closing
 from datetime import datetime, timedelta
 from collections import Counter
 
@@ -19,15 +34,29 @@ AVAILABLE_DATE_FORMATS = (
 
 
 class TimeSeries(object):
+    """Multi-scale time buckets objects. Allow to count events occuring
+    every few minutes and every days around a given date as well as
+    getting a coarse overview over the course of months and years.
+    """
+
     SLIDING_WINDOW = 31
     TIME_INTERVAL = int(timedelta(minutes=20).total_seconds())
     INTERVALS_PER_DAY = int(timedelta(days=1).total_seconds() / TIME_INTERVAL) + 1
 
-    def __init__(self, reference_date=None):
+    def __init__(self, reference_datetime=None):
+        """Create monitoring entries for every few minutes of the day
+        before the referenced time and every day for the month before
+        the referenced date. Also initialize the monthly and yearly
+        counters.
+
+        If reference_datetime is not specified, it defaults to
+        datetime.datetime.now()
+        """
+
         self.reference = (
-            datetime.today()
-            if reference_date is None
-            else reference_date + timedelta(days=1)
+            datetime.now()
+            if reference_datetime is None
+            else reference_datetime + timedelta(days=1)
         ).replace(second=0, microsecond=0)
 
         self.hours = dict(
@@ -38,7 +67,7 @@ class TimeSeries(object):
         self.days = dict(
             (reference_day - timedelta(days=offset), 0)
             for offset in xrange(
-                reference_date and 1 or 0,
+                reference_datetime and 1 or 0,
                 self.SLIDING_WINDOW
             )
         )
@@ -46,6 +75,13 @@ class TimeSeries(object):
         self.years = Counter()
 
     def parse_new_time(self, time, format='%Y-%m-%dT%H:%M:%S+0000'):
+        """Increment the counters associated to the given point in time
+        by one.
+
+        Raise ValueError if time can not be parsed using the given
+        format.
+        """
+
         time = datetime.strptime(time, format)
 
         try:
@@ -65,6 +101,10 @@ class TimeSeries(object):
         self.years[date.replace(month=1, day=1)] += 1
 
     def floor_to_bucket(self, date):
+        """Compute the starting time of the time interval this date
+        belongs to relative to the reference time held by this object.
+        """
+
         offset = date - self.reference
         seconds_beyond = offset.total_seconds() % self.TIME_INTERVAL
         return date - timedelta(seconds=seconds_beyond)
@@ -77,18 +117,38 @@ class TimeSeries(object):
 
 
 class FacebookComments(object):
+    """Wrapper around the facebook-sdk module and its GraphAPI.
+
+    This class focusses on retrieving and parsing comments associated
+    to a facebook object.
+    """
+
     COMMENTS_PER_QUERY = 1000
 
-    def __init__(self, facebook_token, output_file, statistics=None):
-        self.graph = facebook.GraphAPI(facebook_token)
-        self.stats = statistics if statistics is not None else TimeSeries()
-        self.output = output_file
+    def __init__(self, facebook_token):
+        """Initialize a session to the Facebook Graph API using the
+        provided token. The token must be associated to a user
+        account and not be directly generated from a developper app,
+        or this object won't be able to retrieve even public data.
+        """
 
-    def analyze(self, object_id):
+        self.graph = facebook.GraphAPI(facebook_token)
+
+    def analyze(self, object_id, statistics):
+        """Fetche data about the comments associated to the object_id
+        and store them into statistics (in place).
+        """
+
         for comment_time in self._fetch(object_id + '/comments'):
-            self.stats.parse_new_time(comment_time)
+            statistics.parse_new_time(comment_time)
 
     def _fetch(self, path):
+        """Retrieve data from a given path on the Facebook Graph API.
+
+        Continuously follows the 'after' paging cursor to retrieve the
+        maximum amount of data.
+        """
+
         response = self.graph.get_object(
             path,
             limit=self.COMMENTS_PER_QUERY,
@@ -115,29 +175,27 @@ class FacebookComments(object):
                     after=after
                 )
 
-    def __enter__(self):
-        return self
-
-    def __exit__(self, exc_type, exc_value, exc_traceback):
-        for event, data in self.stats:
-            self.output.write('{}:\n'.format(event))
-            if not data:
-                self.output.write('No comments\n')
-            for date, amount in sorted(data):
-                self.output.write('\t{}:\t{}\n'.format(date, amount))
-        self.output.close()
-
 
 def string_or_stdin(argument):
+    """Helper type for argparse.
+
+    Return the argument or read it from stdin if '-' is specified.
+    """
+
     return argument if argument != '-' else raw_input()
 
 def custom_date(argument):
+    """Helper type for argparse.
+
+    Try to convert the argument to date by analyzing various formats.
+    """
+
     for date_format in AVAILABLE_DATE_FORMATS:
         try:
             return datetime.strptime(argument, date_format)
         except ValueError:
             pass
-    raise ValueError("invalid date '{}': format not recognized.".format(reference_date))
+    raise ValueError("invalid date '{}': format not recognized.".format(argument))
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -148,5 +206,15 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
-    with FacebookComments(args.token, args.output, TimeSeries(args.focus_on)) as parser:
-        parser.analyze(args.object)
+    with closing(args.output) as output:
+        statistics = TimeSeries(args.focus_on)
+        parser = FacebookComments(args.token)
+
+        try:
+            parser.analyze(args.object, statistics)
+        finally:
+            # Writte anything we fetched in case of error
+            for event, data in statistics:
+                output.write('{}:\n'.format(event))
+                for date, amount in sorted(data):
+                    output.write('\t{}:\t{}\n'.format(date, amount))
