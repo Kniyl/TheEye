@@ -56,8 +56,18 @@ class TimeSeries(object):
         self.reference = (
             datetime.now()
             if reference_datetime is None
-            else reference_datetime + timedelta(days=1)
+            else reference_datetime
         ).replace(second=0, microsecond=0)
+
+        # Account for the fact that the reference is a little bit
+        # behind the last items we are interested in. Also compute
+        # the starting value for the dayly buckets.
+        if self.reference == self.reference.replace(minute=0, hour=0):
+            self.reference += timedelta(days=1)
+            starting_day_offset = 1
+        else:
+            self.reference += timedelta(minutes=1)
+            starting_day_offset = 0
 
         self.hours = dict(
             (self.reference - timedelta(seconds=i*self.TIME_INTERVAL), 0)
@@ -176,10 +186,13 @@ class FacebookComments(object):
                 )
 
 
-def string_or_stdin(argument):
+def string_or_stdin(argument, raw_input=raw_input):
     """Helper type for argparse.
 
     Return the argument or read it from stdin if '-' is specified.
+
+    The raw_input parameter can be used to customize or mock the way
+    data are read.
     """
 
     return argument if argument != '-' else raw_input()

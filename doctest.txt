@@ -1,0 +1,78 @@
+#Top-level tests
+
+##Importing what is needed
+
+    >>> import the_eye
+    >>> import datetime
+
+##Testing string_or_stdin
+
+Words should be left untouched
+
+    >>> all(the_eye.string_or_stdin(s) == s
+    ...     for s in "a b c foo bar complex-word something".split())
+    True
+
+'-' should read from stdin (mocking this one)
+
+    >>> the_eye.string_or_stdin('-', raw_input=lambda:'Reading from stdin')
+    'Reading from stdin'
+    >>> the_eye.string_or_stdin('-', raw_input=lambda:"foobar")
+    'foobar'
+    >>> the_eye.string_or_stdin('-', raw_input=lambda:"""-""")
+    '-'
+
+##Testing custom_date
+
+Valid dates are parsed to midnight that day
+
+    >>> the_eye.custom_date('2016-08-09')
+    datetime.datetime(2016, 8, 9, 0, 0)
+    >>> the_eye.custom_date('2016/08/09')
+    datetime.datetime(2016, 8, 9, 0, 0)
+    >>> the_eye.custom_date('2016 08 09')
+    datetime.datetime(2016, 8, 9, 0, 0)
+    >>> the_eye.custom_date('09/08/2016')
+    datetime.datetime(2016, 8, 9, 0, 0)
+    >>> the_eye.custom_date('08-09-2016')
+    datetime.datetime(2016, 8, 9, 0, 0)
+
+Invalid dates raise an exception
+
+    >>> the_eye.custom_date('08 09 2016')
+    Traceback (most recent call last):
+    ...
+    ValueError: invalid date '08 09 2016': format not recognized.
+    >>> the_eye.custom_date('24-07-2016')
+    Traceback (most recent call last):
+    ...
+    ValueError: invalid date '24-07-2016': format not recognized.
+    >>> the_eye.custom_date('07/24/2016')
+    Traceback (most recent call last):
+    ...
+    ValueError: invalid date '07/24/2016': format not recognized.
+
+#TimeSeries tests
+
+##Creating some objects
+
+    >>> now = datetime.datetime.now()
+    >>> t1 = the_eye.TimeSeries()
+    >>> t2 = the_eye.TimeSeries(datetime.datetime(2014, 8, 27, 12, 43, 36))
+    >>> t3 = the_eye.TimeSeries(the_eye.custom_date('9837 11 24'))
+
+##Testing reference date
+
+    >>> t1.reference == now.replace(second=0, microsecond=0) + datetime.timedelta(minutes=1)
+    True
+    >>> t2.reference
+    datetime.datetime(2014, 8, 27, 12, 44)
+    >>> t3.reference
+    datetime.datetime(9837, 11, 25, 0, 0)
+
+##Testing hourly buckets
+
+    >>> datetime.datetime(2014, 8, 27, 12, 45) not in t2.hours
+    True
+
+#FacebookComments tests
