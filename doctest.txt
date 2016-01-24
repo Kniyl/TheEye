@@ -56,7 +56,111 @@ Invalid dates raise an exception
 
 ##Creating some objects
 
-    >>> now = datetime.datetime.now()
+    >>> fmt = '%d %m %Y %H%M%S'
     >>> storage = the_eye.TimeSeries()
+    >>> storage.parse_new_time('03 08 2015 145623', fmt)
+    >>> storage.parse_new_time('03 08 2015 145624', fmt)
+    >>> storage.parse_new_time('03 08 2015 145625', fmt)
+    >>> storage.parse_new_time('12 06 2015 213452', fmt)
+    >>> storage.parse_new_time('23 12 2015 145632', fmt)
+    >>> storage.parse_new_time('17 09 2015 030000', fmt)
+    >>> storage.parse_new_time('01 03 2016 124300', fmt)
+    >>> storage.parse_new_time('07 02 2015 231443', fmt)
+    >>> storage.parse_new_time('07 02 2016 123227', fmt)
 
-#FacebookComments tests
+##Testing how timestamps were parsed
+
+    >>> storage.most_common(1)
+    [(datetime.datetime(2015, 8, 3, 14, 56), 3)]
+    >>> len(storage)
+    7
+    >>> storage[datetime.datetime(2015, 6, 12, 21, 34)]
+    1
+    >>> storage[datetime.datetime(2015, 6, 12)]
+    0
+
+##Testing multi-scale analysis
+
+    >>> fail = the_eye.TimeSeries()
+    >>> next(fail.generate_statistics())
+    Traceback (most recent call last):
+    ...
+    ValueError: no data to compute from
+    >>> focus = datetime.datetime(2016, 3, 2, 1, 30)
+    >>> hours, days, months, years = storage.generate_statistics(focus)
+    >>> list(years)
+    [(2015, 7), (2016, 2)]
+    >>> for date, amount in months:
+    ...   print date.strftime('%m %Y'), amount
+    02 2015 1
+    03 2015 0
+    04 2015 0
+    05 2015 0
+    06 2015 1
+    07 2015 0
+    08 2015 3
+    09 2015 1
+    10 2015 0
+    11 2015 0
+    12 2015 1
+    01 2016 0
+    02 2016 1
+    03 2016 1
+    >>> days = dict(days)
+    >>> sorted((d, a) for d, a in days.iteritems() if a)
+    [(datetime.date(2016, 2, 7), 1), (datetime.date(2016, 3, 1), 1)]
+    >>> datetime.date(2016, 3, 2) in days
+    True
+    >>> datetime.date(2016, 3, 3) in days
+    False
+    >>> datetime.date(2016, 2, 1) in days # Feb 2016 is only 29 days
+    True
+    >>> datetime.date(2016, 1, 31) in days
+    False
+    >>> hours = dict(hours)
+    >>> focus in hours # Check offset ok
+    False
+    >>> hours[focus + datetime.timedelta(minutes=1)]
+    0
+    >>> focus + datetime.timedelta(days=-1, minutes=1) in hours
+    True
+    >>> focus = datetime.datetime(2015, 8, 3)
+    >>> hours = next(storage.generate_statistics(focus))
+    >>> for date, _ in hours:
+    ...   if focus != date:
+    ...     print 'Error'
+    ...   focus += datetime.timedelta(minutes=20)
+
+#Prettyfier tests
+
+    >>> import sys
+    >>> pretty = the_eye.Prettyfier(sys.stdout)
+    >>> pretty.new_document(storage.generate_statistics(
+    ...   datetime.datetime(2016, 12, 31), days_focussed=3, minutes_interval=720))
+    Today:
+    	2016-12-31 00:00:00:	0
+    	2016-12-31 12:00:00:	0
+    	2017-01-01 00:00:00:	0
+    Last month:
+    	2016-12-29:	0
+    	2016-12-30:	0
+    	2016-12-31:	0
+    By month:
+    	2015-02-01:	1
+    	2015-03-01:	0
+    	2015-04-01:	0
+    	2015-05-01:	0
+    	2015-06-01:	1
+    	2015-07-01:	0
+    	2015-08-01:	3
+    	2015-09-01:	1
+    	2015-10-01:	0
+    	2015-11-01:	0
+    	2015-12-01:	1
+    	2016-01-01:	0
+    	2016-02-01:	1
+    	2016-03-01:	1
+    By year:
+    	2015:	7
+    	2016:	2
+
