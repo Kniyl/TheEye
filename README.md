@@ -18,10 +18,10 @@ Example usage:
 
  - `python the_eye.py -o foobar.html <facebook_token> <object_id>`
  - `cat my_facebook_token.txt | python the_eye.py - <object_id> > foobar.html`
- - `cat my_facebook_token.txt | python the_eye.py - <object_id> -o foobar.html -f 2015-09-23`
+ - `python the_eye.py $(cat my_facebook_token.txt) <object_id> -o foobar.html -f 2015-09-23 -i`
 
 ## Tests
 
 Testing is provided through the doctest module. Invoking the test suite is done with:
 
-`python -m doctest -v doctest.txt`
+    python -m doctest -v doctest.txt

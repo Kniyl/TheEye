@@ -2,52 +2,55 @@
 
 ##Importing what is needed
 
-    >>> import the_eye
     >>> import datetime
+    >>> from the_eye import string_or_stdin
+    >>> from facebook_comments import custom_date
+    >>> from facebook_comments.prettyfiers import Prettyfier
+    >>> from facebook_comments.utils import TimeSeries, FacebookComments
 
 ##Testing string_or_stdin
 
 Words should be left untouched
 
-    >>> all(the_eye.string_or_stdin(s) == s
+    >>> all(string_or_stdin(s) == s
     ...     for s in "a b c foo bar complex-word something".split())
     True
 
 '-' should read from stdin (mocking this one)
 
-    >>> the_eye.string_or_stdin('-', raw_input=lambda:'Reading from stdin')
+    >>> string_or_stdin('-', raw_input=lambda:'Reading from stdin')
     'Reading from stdin'
-    >>> the_eye.string_or_stdin('-', raw_input=lambda:"foobar")
+    >>> string_or_stdin('-', raw_input=lambda:"foobar")
     'foobar'
-    >>> the_eye.string_or_stdin('-', raw_input=lambda:"""-""")
+    >>> string_or_stdin('-', raw_input=lambda:"""-""")
     '-'
 
 ##Testing custom_date
 
 Valid dates are parsed to midnight that day
 
-    >>> the_eye.custom_date('2016-08-09')
+    >>> custom_date('2016-08-09')
     datetime.datetime(2016, 8, 9, 0, 0)
-    >>> the_eye.custom_date('2016/08/09')
+    >>> custom_date('2016/08/09')
     datetime.datetime(2016, 8, 9, 0, 0)
-    >>> the_eye.custom_date('2016 08 09')
+    >>> custom_date('2016 08 09')
     datetime.datetime(2016, 8, 9, 0, 0)
-    >>> the_eye.custom_date('09/08/2016')
+    >>> custom_date('09/08/2016')
     datetime.datetime(2016, 8, 9, 0, 0)
-    >>> the_eye.custom_date('08-09-2016')
+    >>> custom_date('08-09-2016')
     datetime.datetime(2016, 8, 9, 0, 0)
 
 Invalid dates raise an exception
 
-    >>> the_eye.custom_date('08 09 2016')
+    >>> custom_date('08 09 2016')
     Traceback (most recent call last):
     ...
     ValueError: invalid date '08 09 2016': format not recognized.
-    >>> the_eye.custom_date('24-07-2016')
+    >>> custom_date('24-07-2016')
     Traceback (most recent call last):
     ...
     ValueError: invalid date '24-07-2016': format not recognized.
-    >>> the_eye.custom_date('07/24/2016')
+    >>> custom_date('07/24/2016')
     Traceback (most recent call last):
     ...
     ValueError: invalid date '07/24/2016': format not recognized.
@@ -57,7 +60,7 @@ Invalid dates raise an exception
 ##Creating some objects
 
     >>> fmt = '%d %m %Y %H%M%S'
-    >>> storage = the_eye.TimeSeries()
+    >>> storage = TimeSeries()
     >>> storage.parse_new_time('03 08 2015 145623', fmt)
     >>> storage.parse_new_time('03 08 2015 145624', fmt)
     >>> storage.parse_new_time('03 08 2015 145625', fmt)
@@ -81,7 +84,7 @@ Invalid dates raise an exception
 
 ##Testing multi-scale analysis
 
-    >>> fail = the_eye.TimeSeries()
+    >>> fail = TimeSeries()
     >>> next(fail.generate_statistics())
     Traceback (most recent call last):
     ...
@@ -106,7 +109,6 @@ Invalid dates raise an exception
     01 2016 0
     02 2016 1
     03 2016 1
-    >>> days = dict(days)
     >>> sorted((d, a) for d, a in days.iteritems() if a)
     [(datetime.date(2016, 2, 7), 1), (datetime.date(2016, 3, 1), 1)]
     >>> datetime.date(2016, 3, 2) in days
@@ -117,7 +119,6 @@ Invalid dates raise an exception
     True
     >>> datetime.date(2016, 1, 31) in days
     False
-    >>> hours = dict(hours)
     >>> focus in hours # Check offset ok
     False
     >>> hours[focus + datetime.timedelta(minutes=1)]
@@ -134,7 +135,7 @@ Invalid dates raise an exception
 #Prettyfier tests
 
     >>> import sys
-    >>> pretty = the_eye.Prettyfier(sys.stdout)
+    >>> pretty = Prettyfier(sys.stdout)
     >>> pretty.new_document(storage.generate_statistics(
     ...   datetime.datetime(2016, 12, 31), days_focussed=3, minutes_interval=720))
     Today:
