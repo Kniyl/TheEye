@@ -13,10 +13,10 @@ associated to an object.
 """
 
 import argparse
+import datetime
 from sys import stdout
-from contextlib import closing
-from datetime import datetime, timedelta
-from collections import Counter
+from collections import Counter, OrderedDict
+from itertools import takewhile, chain, izip, repeat, count
 
 import facebook
 
@@ -33,97 +33,110 @@ AVAILABLE_DATE_FORMATS = (
 )
 
 
-class TimeSeries(object):
+class TimeSeries(Counter):
     """Multi-scale time buckets objects. Allow to count events occuring
     every few minutes and every days around a given date as well as
     getting a coarse overview over the course of months and years.
     """
 
-    SLIDING_WINDOW = 31
-    TIME_INTERVAL = int(timedelta(minutes=20).total_seconds())
-    INTERVALS_PER_DAY = int(timedelta(days=1).total_seconds() / TIME_INTERVAL) + 1
-
-    def __init__(self, reference_datetime=None):
-        """Create monitoring entries for every few minutes of the day
-        before the referenced time and every day for the month before
-        the referenced date. Also initialize the monthly and yearly
-        counters.
-
-        If reference_datetime is not specified, it defaults to
-        datetime.datetime.now()
-        """
-
-        self.reference = (
-            datetime.now()
-            if reference_datetime is None
-            else reference_datetime
-        ).replace(second=0, microsecond=0)
-
-        # Account for the fact that the reference is a little bit
-        # behind the last items we are interested in. Also compute
-        # the starting value for the dayly buckets.
-        if self.reference == self.reference.replace(minute=0, hour=0):
-            self.reference += timedelta(days=1)
-            starting_day_offset = 1
-        else:
-            self.reference += timedelta(minutes=1)
-            starting_day_offset = 0
-
-        self.hours = dict(
-            (self.reference - timedelta(seconds=i*self.TIME_INTERVAL), 0)
-            for i in xrange(self.INTERVALS_PER_DAY)
-        )
-        reference_day = self.reference.date()
-        self.days = dict(
-            (reference_day - timedelta(days=offset), 0)
-            for offset in xrange(
-                reference_datetime and 1 or 0,
-                self.SLIDING_WINDOW
-            )
-        )
-        self.months = Counter()
-        self.years = Counter()
-
     def parse_new_time(self, time, format='%Y-%m-%dT%H:%M:%S+0000'):
-        """Increment the counters associated to the given point in time
-        by one.
+        """Increment the counter associated to the given point in time
+        by one. Time is rounded down to the nearest minute.
 
         Raise ValueError if time can not be parsed using the given
         format.
         """
 
-        time = datetime.strptime(time, format)
+        time = datetime.datetime.strptime(time, format)
+        self[time.replace(second=0, microsecond=0)] += 1
 
-        try:
-            self.hours[self.floor_to_bucket(time)] += 1
-        except KeyError:
-            # Not interested on being that precise around that time
-            pass
-
-        date = time.date()
-        try:
-            self.days[date] += 1
-        except KeyError:
-            # Not interested on that particular day
-            pass
-
-        self.months[date.replace(day=1)] += 1
-        self.years[date.replace(month=1, day=1)] += 1
-
-    def floor_to_bucket(self, date):
-        """Compute the starting time of the time interval this date
-        belongs to relative to the reference time held by this object.
+    def generate_statistics(self, reference_datetime=None,
+                            days_focussed=31, minutes_interval=20):
+        """Generate the underlying data at different time scales with
+        a particular focus around reference_datetime. Each scale is
+        broader than the previous one:
+         - the day before reference_date with minutes_interval gaps;
+         - up to days_focussed days before reference_date;
+         - each month between the oldest and the newest date stored;
+         - each year between the oldest and the newest date stored.
         """
 
-        offset = date - self.reference
-        seconds_beyond = offset.total_seconds() % self.TIME_INTERVAL
-        return date - timedelta(seconds=seconds_beyond)
+        if not self:
+            raise ValueError('no data to compute from')
 
-    def __iter__(self):
-        yield 'Today', self.hours.iteritems()
-        yield 'Last month', self.days.iteritems()
-        yield 'Each month', self.months.iteritems()
-        yield 'Each year', self.years.iteritems()
+        oldest = min(self)
+        newest = max(self)
+        begin = oldest.year
+
+        # Focus around a specific day
+        reference = (
+            datetime.datetime.now()
+            if reference_datetime is None
+            else reference_datetime
+        ).replace(second=0, microsecond=0)
+        reference_date = reference.date()
+        # Account for the fact that the reference is a little bit
+        # behind the last items we are interested in.
+        if reference == reference.replace(minute=0, hour=0):
+            reference += datetime.timedelta(days=1)
+        else:
+            reference += datetime.timedelta(minutes=1)
+
+        # Not using Counter initialization from iterable here since I
+        # want to explicitly create keys for years whose total is 0.
+        yearly_data = OrderedDict(
+            (y, 0) for y in xrange(begin, newest.year + 1)
+        )
+
+
+        # Manually generate all month because there is no timedelta
+        # constructor to deal with months.
+        monthly_data = OrderedDict(
+            (datetime.date(year, month, 1), 0)
+            for year, month in takewhile(
+                lambda d: datetime.datetime(*d, day=1) <= newest,
+                (d for m in chain(
+                    (izip(repeat(begin), xrange(oldest.month, 13)),),
+                    (izip(repeat(y), xrange(1, 13)) for y in count(begin + 1))
+                ) for d in m)
+            )
+        )
+
+        dayly_data = OrderedDict(
+            (reference_date - datetime.timedelta(days=offset), 0)
+            for offset in reversed(xrange(days_focussed))
+        )
+
+        interval = int(datetime.timedelta(minutes=minutes_interval).total_seconds())
+        buckets = int(datetime.timedelta(days=1).total_seconds() / interval) + 1
+        hourly_data = OrderedDict(
+            (reference - datetime.timedelta(seconds=i*interval), 0)
+            for i in reversed(xrange(buckets))
+        )
+
+        for cur_datetime, amount in self.iteritems():
+            cur_date = cur_datetime.date()
+            yearly_data[cur_date.year] += amount
+            monthly_data[cur_date.replace(day=1)] += amount
+            try:
+                dayly_data[cur_date] += amount
+            except KeyError:
+                pass
+
+            # Compute the starting time of the time interval this date
+            # belongs to relative to the reference time.
+            offset = cur_datetime - reference
+            beyond = offset.total_seconds() % interval
+            cur_bucket = cur_datetime - datetime.timedelta(seconds=beyond)
+            try:
+                hourly_data[cur_bucket] += amount
+            except KeyError:
+                pass
+
+        yield hourly_data.iteritems()
+        yield dayly_data.iteritems()
+        yield monthly_data.iteritems()
+        yield yearly_data.iteritems()
 
 
 class FacebookComments(object):
@@ -144,13 +157,10 @@ class FacebookComments(object):
 
         self.graph = facebook.GraphAPI(facebook_token)
 
-    def analyze(self, object_id, statistics):
-        """Fetche data about the comments associated to the object_id
-        and store them into statistics (in place).
-        """
+    def analyze(self, object_id):
+        """Fetch data about the comments associated to the object_id"""
 
-        for comment_time in self._fetch(object_id + '/comments'):
-            statistics.parse_new_time(comment_time)
+        return self._fetch(object_id + '/comments')
 
     def _fetch(self, path):
         """Retrieve data from a given path on the Facebook Graph API.
@@ -186,6 +196,71 @@ class FacebookComments(object):
                 )
 
 
+class Prettyfier(object):
+    """Utility class to output TimeSeries data into a file.
+    
+    Mimics contextlib.closing behaviour and capabilities to output
+    data into the underlying file object.
+    """
+
+    def __init__(self, stream):
+        """Initialize handling of the given file-like object"""
+
+        self.output = stream
+
+    def __enter__(self):
+        """Use this object as a context manager"""
+
+        return self
+
+    def __exit__(self, exc_type, exc_value, exc_traceback):
+        """Close the underlying file when exiting the context manager"""
+
+        self.output.close()
+
+    def new_document(self, statistics, day_name=None):
+        """Clear the underlying file and output the newly provided
+        statistics. Use day_name to format legends.
+        """
+
+        if not self.output.isatty():
+            # We want to avoid IOErrors on sys.stdout and alike
+            self.output.seek(0)
+            self.output.truncate()
+
+        graph_names = (
+            ('Today', 'Last month', 'By month', 'By year')
+            if day_name is None else
+            (day_name, 'Month before {}'.format(day_name), 'By month', 'By year')
+        )
+
+        self._write_header()
+        self._write_data(izip(graph_names, statistics))
+        self._write_footer()
+
+    def _write_header(self):
+        """Convenience method for subclassing"""
+        pass
+
+    def _write_footer(self):
+        """Convenience method for subclassing"""
+        pass
+
+    def _write_data(self, data_iterator):
+        """Format the provided data into a suitable representation and
+        write it into the underlying file.
+        """
+
+        for event, data in data_iterator:
+            self.output.write('{}:\n'.format(event))
+            for date, amount in data:
+                self.output.write('\t{}:\t{}\n'.format(date, amount))
+
+
+class HTMLPrettyfier(Prettyfier):
+    pass # TODO redifine _write_xxx(self)
+
+
 def string_or_stdin(argument, raw_input=raw_input):
     """Helper type for argparse.
 
@@ -205,7 +280,7 @@ def custom_date(argument):
 
     for date_format in AVAILABLE_DATE_FORMATS:
         try:
-            return datetime.strptime(argument, date_format)
+            return datetime.datetime.strptime(argument, date_format)
         except ValueError:
             pass
     raise ValueError("invalid date '{}': format not recognized.".format(argument))
@@ -219,15 +294,14 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
-    with closing(args.output) as output:
-        statistics = TimeSeries(args.focus_on)
+    with HTMLPrettyfier(args.output) as output:
+        storage = TimeSeries()
         parser = FacebookComments(args.token)
 
         try:
-            parser.analyze(args.object, statistics)
+            for comment_time in parser.analyze(args.object):
+                storage.parse_new_time(comment_time)
         finally:
             # Writte anything we fetched in case of error
-            for event, data in statistics:
-                output.write('{}:\n'.format(event))
-                for date, amount in sorted(data):
-                    output.write('\t{}:\t{}\n'.format(date, amount))
+            output.new_document(storage.generate_statistics(args.focus_on))
+            # TODO: allow for interactive session

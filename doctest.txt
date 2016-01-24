@@ -57,22 +57,6 @@ Invalid dates raise an exception
 ##Creating some objects
 
     >>> now = datetime.datetime.now()
-    >>> t1 = the_eye.TimeSeries()
-    >>> t2 = the_eye.TimeSeries(datetime.datetime(2014, 8, 27, 12, 43, 36))
-    >>> t3 = the_eye.TimeSeries(the_eye.custom_date('9837 11 24'))
-
-##Testing reference date
-
-    >>> t1.reference == now.replace(second=0, microsecond=0) + datetime.timedelta(minutes=1)
-    True
-    >>> t2.reference
-    datetime.datetime(2014, 8, 27, 12, 44)
-    >>> t3.reference
-    datetime.datetime(9837, 11, 25, 0, 0)
-
-##Testing hourly buckets
-
-    >>> datetime.datetime(2014, 8, 27, 12, 45) not in t2.hours
-    True
+    >>> storage = the_eye.TimeSeries()
 
 #FacebookComments tests
