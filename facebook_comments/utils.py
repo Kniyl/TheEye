@@ -134,7 +134,7 @@ class FacebookComments(object):
     to a facebook object.
     """
 
-    COMMENTS_PER_QUERY = 1000
+    COMMENTS_PER_QUERY = 4000
 
     def __init__(self, facebook_token):
         """Initialize a session to the Facebook Graph API using the
@@ -157,18 +157,15 @@ class FacebookComments(object):
         maximum amount of data.
         """
 
-        response = self.graph.get_object(
-            path,
-            limit=self.COMMENTS_PER_QUERY,
-            summary=True,
-            filter='stream'
-        )
-        total = response['summary']['total_count']
-        count = 0
+        kwargs = {
+            'fields': 'created_time',
+            'limit': self.COMMENTS_PER_QUERY,
+            'filter': 'stream',
+        }
+
+        response = self.graph.get_object(path, **kwargs)
 
         while True:
-            count += len(response['data'])
-            print 'Got', count, 'over', total, 'comments.'
             for comment in response['data']:
                 yield comment['created_time']
             try:
@@ -176,10 +173,5 @@ class FacebookComments(object):
             except KeyError:
                 break
             else:
-                response = self.graph.get_object(
-                    path,
-                    limit=self.COMMENTS_PER_QUERY,
-                    filter='stream',
-                    after=after
-                )
+                response = self.graph.get_object(path, after=after, **kwargs)
 
