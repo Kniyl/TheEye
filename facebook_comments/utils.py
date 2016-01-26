@@ -76,7 +76,6 @@ class TimeSeries(Counter):
             (y, 0) for y in xrange(begin, newest.year + 1)
         )
 
-
         # Manually generate all month because there is no timedelta
         # constructor to deal with months.
         monthly_data = OrderedDict(
@@ -135,6 +134,7 @@ class FacebookComments(object):
     """
 
     COMMENTS_PER_QUERY = 4000
+    API_VERSION = 2.5
 
     def __init__(self, facebook_token):
         """Initialize a session to the Facebook Graph API using the
@@ -145,9 +145,12 @@ class FacebookComments(object):
 
         self.graph = facebook.GraphAPI(facebook_token)
 
-    def analyze(self, object_id):
+    def analyze(self, object_id, edge='comments', version=None):
         """Fetch data about the comments associated to the object_id"""
 
+        if version is None:
+            version = self.API_VERSION
+        path = 'v{:.1f}/{}/{}'.format(version, object_id, edge)
         return self._fetch(object_id + '/comments')
 
     def _fetch(self, path):
