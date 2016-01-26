@@ -1,5 +1,7 @@
 import sys
 from datetime import datetime
+from collections import OrderedDict
+from itertools import imap
 
 from .prettyfiers import HTMLPrettyfier
 from .utils import TimeSeries, FacebookComments
@@ -17,6 +19,23 @@ AVAILABLE_DATE_FORMATS = (
 )
 
 
+def failsafe_generator(iterable, exc_type=Exception):
+    """Yield from an iterable and swallow any exception that could
+    occur.
+
+    Generation stop either when the iterable is exhausted or when an
+    exception is raised.
+    """
+
+    try:
+        for element in iterable:
+            yield element
+    except exc_type:
+        # EAFP: only import this if really necessary
+        import traceback
+        traceback.print_exc()
+
+
 def custom_date(argument):
     """Try to convert the argument to date by analyzing various formats"""
 
@@ -30,35 +49,34 @@ def custom_date(argument):
 
 def parse_object(user_token, object_id,
                  output_stream=sys.stdout,
+                 storage_file=None,
                  interactive=False,
                  focus=None,
-                 focus_days=31,
+                 focus_days=15,
                  focus_interval=20):
     """Provide a session to fetch and analyze data from a facebook
     object. Data are retrieved on behalf of the user represented in
     the given token.
+
+    In case data should be analyzed from a previously exported session,
+    user_token should be None and object_id should be the path to the
+    file where data were pickled.
     """
 
-    with HTMLPrettyfier(output_stream) as output:
-        storage = TimeSeries()
+    if user_token is None:
+        storage = TimeSeries.unpickle(object_id)
+    else:
         parser = FacebookComments(user_token)
+        storage = TimeSeries(failsafe_generator(parser.analyze(object_id)))
 
-        try:
-            for comment_time in parser.analyze(object_id):
-                storage.parse_new_time(comment_time)
-        except Exception:
-            if not storage:
-                # Nothing fetched, abort now
-                raise
+    if storage_file is not None:
+        storage.pickle(storage_file)
 
-            import traceback
-            traceback.print_exc()
-            print >> sys.stderr, 'Some data were fetched, continuing analysis'
-
+    with HTMLPrettyfier(output_stream) as output:
         while True:
             name = focus.strftime('%d %B %Y') if focus is not None else None
             data = storage.generate_statistics(focus, focus_days, focus_interval)
-            output.new_document(data, name)
+            output.new_document(imap(OrderedDict, data), name)
 
             if not interactive:
                 break

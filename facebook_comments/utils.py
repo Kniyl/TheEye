@@ -12,118 +12,85 @@ parser which queries the Facebook Graph API to retrieve comments
 associated to an object.
 """
 
-import datetime
-from collections import Counter, OrderedDict
-from itertools import takewhile, chain, izip, repeat, count
-
 import facebook
+import pandas as pd
+from pandas.tseries.frequencies import to_offset
 
 
-class TimeSeries(Counter):
+class TimeSeries(object):
     """Multi-scale time buckets objects. Allow to count events occuring
     every few minutes and every days around a given date as well as
     getting a coarse overview over the course of months and years.
     """
 
-    def parse_new_time(self, time, format='%Y-%m-%dT%H:%M:%S+0000'):
-        """Increment the counter associated to the given point in time
-        by one. Time is rounded down to the nearest minute.
-
-        Raise ValueError if time can not be parsed using the given
+    def __init__(self, iterable=None, format='%Y-%m-%dT%H:%M:%S+0000'):
+        """Store date contained in the iterable as an histogram using
+        one minute resolution. Parse each date using the provided
         format.
         """
 
-        time = datetime.datetime.strptime(time, format)
-        self[time.replace(second=0, microsecond=0)] += 1
+        if iterable is None:
+            iterable = ()
+        else:
+            # Convert iterators/generator to lists so pandas is happy
+            iterable = list(iterable)
+
+        serie = pd.to_datetime(iterable, format=format)
+        self.histogram = (pd
+                .Series(serie)
+                .value_counts()
+                .groupby(self.truncate_to_frequency)
+                .sum()
+        )
+
+    @staticmethod
+    def truncate_to_frequency(time, frequency='1min'):
+        """Convert a point in time to the latest timestamp a frequency
+        occured.
+        """
+
+        freq = to_offset(frequency).delta.value
+        return pd.Timestamp((time.value // freq) * freq)
+
 
     def generate_statistics(self, reference_datetime=None,
-                            days_focussed=31, minutes_interval=20):
+                            days_focussed=15, minutes_interval=20):
         """Generate the underlying data at different time scales with
         a particular focus around reference_datetime. Each scale is
         broader than the previous one:
-         - the day before reference_date with minutes_interval gaps;
-         - up to days_focussed days before reference_date;
+         - the day containing reference_date with minutes_interval gaps;
+         - up to days_focussed days before and after reference_date;
          - each month between the oldest and the newest date stored;
          - each year between the oldest and the newest date stored.
 
         Yield OrderedDicts for each scale.
         """
 
-        if not self:
-            raise ValueError('no data to compute from')
+        ref = pd.Timestamp(reference_datetime)
+        ref = self.truncate_to_frequency(ref, '1D')
+        frequency = '{}min'.format(minutes_interval)
 
-        oldest = min(self)
-        newest = max(self)
-        begin = oldest.year
+        days_offset = pd.DateOffset(days=days_focussed)
+        days = pd.date_range(ref - days_offset, ref + days_offset, freq='1D')
+        hours = pd.date_range(ref, ref + pd.DateOffset(days=1), freq=frequency)
 
-        # Focus around a specific day
-        reference = (
-            datetime.datetime.now()
-            if reference_datetime is None
-            else reference_datetime
-        ).replace(second=0, microsecond=0)
-        reference_date = reference.date()
-        # Account for the fact that the reference is a little bit
-        # behind the last items we are interested in.
-        if reference == reference.replace(minute=0, hour=0):
-            reference += datetime.timedelta(days=1)
-        else:
-            reference += datetime.timedelta(minutes=1)
+        yield self.histogram.resample(frequency, how='sum').reindex(hours).fillna(0)
+        yield self.histogram.resample('1D', how='sum').reindex(days).fillna(0)
+        yield self.histogram.resample('1MS', how='sum').fillna(0)
+        yield self.histogram.resample('1AS', how='sum').fillna(0)
 
-        # Not using Counter initialization from iterable here since I
-        # want to explicitly create keys for years whose total is 0.
-        yearly_data = OrderedDict(
-            (y, 0) for y in xrange(begin, newest.year + 1)
-        )
+    def pickle(self, path):
+        """Write the underlying data to an HDFStore"""
 
-        # Manually generate all month because there is no timedelta
-        # constructor to deal with months.
-        monthly_data = OrderedDict(
-            (datetime.date(year, month, 1), 0)
-            for year, month in takewhile(
-                lambda d: datetime.datetime(*d, day=1) <= newest,
-                (d for m in chain(
-                    (izip(repeat(begin), xrange(oldest.month, 13)),),
-                    (izip(repeat(y), xrange(1, 13)) for y in count(begin + 1))
-                ) for d in m)
-            )
-        )
+        self.histogram.to_pickle(path)
 
-        dayly_data = OrderedDict(
-            (reference_date - datetime.timedelta(days=offset), 0)
-            for offset in reversed(xrange(days_focussed))
-        )
+    @classmethod
+    def unpickle(cls, path):
+        """Read data from an HDFStore to initialize a new serie"""
 
-        interval = int(datetime.timedelta(minutes=minutes_interval).total_seconds())
-        buckets = int(datetime.timedelta(days=1).total_seconds() / interval) + 1
-        hourly_data = OrderedDict(
-            (reference - datetime.timedelta(seconds=i*interval), 0)
-            for i in reversed(xrange(buckets))
-        )
-
-        for cur_datetime, amount in self.iteritems():
-            cur_date = cur_datetime.date()
-            yearly_data[cur_date.year] += amount
-            monthly_data[cur_date.replace(day=1)] += amount
-            try:
-                dayly_data[cur_date] += amount
-            except KeyError:
-                pass
-
-            # Compute the starting time of the time interval this date
-            # belongs to relative to the reference time.
-            offset = cur_datetime - reference
-            beyond = offset.total_seconds() % interval
-            cur_bucket = cur_datetime - datetime.timedelta(seconds=beyond)
-            try:
-                hourly_data[cur_bucket] += amount
-            except KeyError:
-                pass
-
-        yield hourly_data
-        yield dayly_data
-        yield monthly_data
-        yield yearly_data
+        serie = cls()
+        serie.histogram = pd.read_pickle(path)
+        return serie
 
 
 class FacebookComments(object):

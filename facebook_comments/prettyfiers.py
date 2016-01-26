@@ -35,9 +35,9 @@ class Prettyfier(object):
             self.output.truncate()
 
         graph_names = (
-            ('Today', 'Last month', 'By month', 'By year')
+            ('Today', 'Past and coming days', 'By month', 'By year')
             if day_name is None else
-            (day_name, 'Month before {}'.format(day_name), 'By month', 'By year')
+            (day_name, 'Days around {}'.format(day_name), 'By month', 'By year')
         )
 
         self._write_data(graph_names, statistics)
@@ -74,7 +74,7 @@ class HTMLPrettyfier(Prettyfier):
                 """.format(title, dom)
 
                 if time_format is None:
-                    content = ('value: {}, label: {}'.format(v, k)
+                    content = ('value: {}, label: {}'.format(v, k.strftime('%Y'))
                                for k, v in data.iteritems())
                     script = """
                         ctx = document.getElementById("{}").getContext("2d");

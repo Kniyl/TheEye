@@ -3,6 +3,7 @@
 ##Importing what is needed
 
     >>> import datetime
+    >>> from collections import OrderedDict
     >>> from the_eye import string_or_stdin
     >>> from facebook_comments import custom_date
     >>> from facebook_comments.prettyfiers import Prettyfier
@@ -90,7 +91,7 @@ Invalid dates raise an exception
     ...
     ValueError: no data to compute from
     >>> focus = datetime.datetime(2016, 3, 2, 1, 30)
-    >>> hours, days, months, years = storage.generate_statistics(focus)
+    >>> hours, days, months, years = map(OrderedDict, storage.generate_statistics(focus))
     >>> list(years.iteritems())
     [(2015, 7), (2016, 2)]
     >>> for date, amount in months.iteritems():

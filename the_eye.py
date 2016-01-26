@@ -20,10 +20,13 @@ if __name__ == '__main__':
     parser.add_argument('-o', '--output', type=argparse.FileType('w'), default=stdout)
     parser.add_argument('-f', '--focus-on', '--find', type=custom_date, default=None)
     parser.add_argument('-i', '--interactive', action='store_true')
-    parser.add_argument('token', type=string_or_stdin)
+    parser.add_argument('-e', '--export')
+    parser.add_argument('-d', '--days', type=int, default=15)
+    parser.add_argument('-m', '--minutes', type=int, default=20)
+    parser.add_argument('token', type=string_or_stdin, nargs='?')
     parser.add_argument('object')
 
     args = parser.parse_args()
 
-    parse_object(args.token, args.object, args.output, args.interactive, args.focus_on)
+    parse_object(args.token, args.object, args.output, args.export, args.interactive, args.focus_on)
 
