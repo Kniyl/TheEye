@@ -2,12 +2,9 @@
 
 ##Importing what is needed
 
-    >>> import datetime
-    >>> from collections import OrderedDict
     >>> from the_eye import string_or_stdin
-    >>> from facebook_comments import custom_date
-    >>> from facebook_comments.prettyfiers import Prettyfier
-    >>> from facebook_comments.utils import TimeSeries, FacebookComments
+    >>> import pandas as pd
+    >>> import facebook_comments as fc
 
 ##Testing string_or_stdin
 
@@ -26,76 +23,118 @@ Words should be left untouched
     >>> string_or_stdin('-', raw_input=lambda:"""-""")
     '-'
 
-##Testing custom_date
+#Facebook_comments tests
 
-Valid dates are parsed to midnight that day
+##Module tests
 
-    >>> custom_date('2016-08-09')
-    datetime.datetime(2016, 8, 9, 0, 0)
-    >>> custom_date('2016/08/09')
-    datetime.datetime(2016, 8, 9, 0, 0)
-    >>> custom_date('2016 08 09')
-    datetime.datetime(2016, 8, 9, 0, 0)
-    >>> custom_date('09/08/2016')
-    datetime.datetime(2016, 8, 9, 0, 0)
-    >>> custom_date('08-09-2016')
-    datetime.datetime(2016, 8, 9, 0, 0)
+    >>> def mock_fetch(self, path):
+    ...     for i in range(10):
+    ...         yield ['2015-06-{:02}T{:02}:00:00+0000'.format(j+1, i) for j in range(20)]
+    >>> fc.utils.FacebookComments._fetch = mock_fetch
+    >>> serie = fc.read_from_facebook(None, None)
+    >>> len(serie.histogram)
+    200
+    >>> def will_fail_generator():
+    ...     for i in xrange(10):
+    ...         yield i
+    ...     raise Exception()
+    ...     for i in xrange(10, 20):
+    ...         yield i
+    >>> generated = list(fc.failsafe_generator(will_fail_generator()))
+    >>> generated == range(10)
+    True
+    >>> list(fc.failsafe_generator('abracadabra'))
+    ['a', 'b', 'r', 'a', 'c', 'a', 'd', 'a', 'b', 'r', 'a']
+    
 
-Invalid dates raise an exception
+##Utils tests
 
-    >>> custom_date('08 09 2016')
+###Creating some objects
+
+    >>> def mock_fetch(self, path):
+    ...     yield ['03 08 2015 145623']
+    ...     yield ['03 08 2015 145624']
+    ...     yield ['03 08 2015 145625']
+    ...     yield ['12 06 2015 213452']
+    ...     yield ['23 12 2015 145632']
+    ...     yield ['17 09 2015 030000']
+    ...     yield ['01 03 2016 124300']
+    ...     yield ['07 02 2015 231443']
+    ...     yield ['07 02 2016 123227']
+    >>> fc.utils.FacebookComments._fetch = mock_fetch
+    >>> parser = fc.utils.FacebookComments(None)
+    >>> list(parser.analyze(None))
+    ['03 08 2015 145623', '03 08 2015 145624', '03 08 2015 145625', '12 06 2015 213452', '23 12 2015 145632', '17 09 2015 030000', '01 03 2016 124300', '07 02 2015 231443', '07 02 2016 123227']
+    >>> fc.utils.TimeSeries().histogram
+    Series([], dtype: int64)
+    >>> storage = fc.utils.TimeSeries(parser.analyze(None), '%d %m %Y %H%M%S')
+    >>> storage.histogram
+    2015-02-07 23:14:00    1
+    2015-06-12 21:34:00    1
+    2015-08-03 14:56:00    3
+    2015-09-17 03:00:00    1
+    2015-12-23 14:56:00    1
+    2016-02-07 12:32:00    1
+    2016-03-01 12:43:00    1
+    dtype: int64
+
+###Testing frequency truncating
+
+    >>> fc.utils.TimeSeries.truncate_to_frequency('12 June 2042, 21H43')
     Traceback (most recent call last):
     ...
-    ValueError: invalid date '08 09 2016': format not recognized.
-    >>> custom_date('24-07-2016')
+    AttributeError: 'str' object has no attribute 'value'
+    >>> ref = pd.Timestamp('12 June 2042, 21H43')
+    >>> fc.utils.TimeSeries.truncate_to_frequency(ref, '15min')
+    Timestamp('2042-06-12 21:30:00')
+    >>> fc.utils.TimeSeries.truncate_to_frequency(ref, '20min')
+    Timestamp('2042-06-12 21:40:00')
+    >>> fc.utils.TimeSeries.truncate_to_frequency(ref, '1H')
+    Timestamp('2042-06-12 21:00:00')
+    >>> fc.utils.TimeSeries.truncate_to_frequency(ref, '2H')
+    Timestamp('2042-06-12 20:00:00')
+    >>> fc.utils.TimeSeries.truncate_to_frequency(ref, '1D')
+    Timestamp('2042-06-12 00:00:00')
+    >>> fc.utils.TimeSeries.truncate_to_frequency(ref, '1M')
     Traceback (most recent call last):
     ...
-    ValueError: invalid date '24-07-2016': format not recognized.
-    >>> custom_date('07/24/2016')
+    AttributeError: 'MonthEnd' object has no attribute 'delta'
+    >>> fc.utils.TimeSeries.truncate_to_frequency(ref, '1MS')
     Traceback (most recent call last):
     ...
-    ValueError: invalid date '07/24/2016': format not recognized.
+    AttributeError: 'MonthBegin' object has no attribute 'delta'
 
-#TimeSeries tests
 
-##Creating some objects
+###Testing multi-scale analysis
 
-    >>> fmt = '%d %m %Y %H%M%S'
-    >>> storage = TimeSeries()
-    >>> storage.parse_new_time('03 08 2015 145623', fmt)
-    >>> storage.parse_new_time('03 08 2015 145624', fmt)
-    >>> storage.parse_new_time('03 08 2015 145625', fmt)
-    >>> storage.parse_new_time('12 06 2015 213452', fmt)
-    >>> storage.parse_new_time('23 12 2015 145632', fmt)
-    >>> storage.parse_new_time('17 09 2015 030000', fmt)
-    >>> storage.parse_new_time('01 03 2016 124300', fmt)
-    >>> storage.parse_new_time('07 02 2015 231443', fmt)
-    >>> storage.parse_new_time('07 02 2016 123227', fmt)
-
-##Testing how timestamps were parsed
-
-    >>> storage.most_common(1)
-    [(datetime.datetime(2015, 8, 3, 14, 56), 3)]
-    >>> len(storage)
-    7
-    >>> storage[datetime.datetime(2015, 6, 12, 21, 34)]
-    1
-    >>> storage[datetime.datetime(2015, 6, 12)]
-    0
-
-##Testing multi-scale analysis
-
-    >>> fail = TimeSeries()
-    >>> next(fail.generate_statistics())
-    Traceback (most recent call last):
-    ...
-    ValueError: no data to compute from
-    >>> focus = datetime.datetime(2016, 3, 2, 1, 30)
-    >>> hours, days, months, years = map(OrderedDict, storage.generate_statistics(focus))
-    >>> list(years.iteritems())
-    [(2015, 7), (2016, 2)]
+    >>> no_data = fc.utils.TimeSeries().statistics('26 jan 2014')
+    >>> hours, days, months, years = no_data
+    >>> months == years
+    True
+    >>> months
+    OrderedDict()
+    >>> sum(hours.values()) == sum(days.values()) == 0
+    True
+    >>> min(hours)
+    Timestamp('2014-01-26 00:00:00', offset='20T')
+    >>> max(hours)
+    Timestamp('2014-01-27 00:00:00', offset='20T')
+    >>> len(hours)
+    73
+    >>> min(days)
+    Timestamp('2014-01-11 00:00:00', offset='D')
+    >>> max(days)
+    Timestamp('2014-02-10 00:00:00', offset='D')
+    >>> len(days)
+    31
+    >>> hours, days, months, years = storage.statistics(
+    ...     '20 February 2016, 1H30',
+    ...     days_focussed=20,
+    ...     minutes_interval=15)
+    >>> years
+    OrderedDict([(Timestamp('2015-01-01 00:00:00', offset='AS-JAN'), 7), (Timestamp('2016-01-01 00:00:00', offset='AS-JAN'), 2)])
     >>> for date, amount in months.iteritems():
-    ...   print date.strftime('%m %Y'), amount
+    ...   print date.strftime('%m %Y'), int(amount)
     02 2015 1
     03 2015 0
     04 2015 0
@@ -110,59 +149,56 @@ Invalid dates raise an exception
     01 2016 0
     02 2016 1
     03 2016 1
-    >>> sorted((d, a) for d, a in days.iteritems() if a)
-    [(datetime.date(2016, 2, 7), 1), (datetime.date(2016, 3, 1), 1)]
-    >>> datetime.date(2016, 3, 2) in days
-    True
-    >>> datetime.date(2016, 3, 3) in days
-    False
-    >>> datetime.date(2016, 2, 1) in days # Feb 2016 is only 29 days
-    True
-    >>> datetime.date(2016, 1, 31) in days
-    False
-    >>> focus in hours # Check offset ok
-    False
-    >>> hours[focus + datetime.timedelta(minutes=1)]
-    0
-    >>> focus + datetime.timedelta(days=-1, minutes=1) in hours
-    True
-    >>> focus = datetime.datetime(2015, 8, 3)
-    >>> hours = next(storage.generate_statistics(focus))
-    >>> for date in hours:
-    ...   if focus != date:
-    ...     print 'Error'
-    ...   focus += datetime.timedelta(minutes=20)
+    >>> [(d, int(a)) for d, a in days.iteritems() if a]
+    [(Timestamp('2016-02-07 00:00:00', offset='D'), 1), (Timestamp('2016-03-01 00:00:00', offset='D'), 1)]
+    >>> min(days)
+    Timestamp('2016-01-31 00:00:00', offset='D')
+    >>> max(days)
+    Timestamp('2016-03-11 00:00:00', offset='D')
+    >>> len(days)
+    41
+    >>> min(hours)
+    Timestamp('2016-02-20 00:00:00', offset='15T')
+    >>> max(hours)
+    Timestamp('2016-02-21 00:00:00', offset='15T')
+    >>> len(hours)
+    97
+    >>> sum(hours.values())
+    0.0
 
-#Prettyfier tests
+##Prettyfier tests
 
     >>> import sys
-    >>> pretty = Prettyfier(sys.stdout)
-    >>> pretty.new_document(storage.generate_statistics(
-    ...   datetime.datetime(2016, 12, 31), days_focussed=3, minutes_interval=720))
+    >>> pretty = fc.prettyfiers.Prettyfier(sys.stdout)
+    >>> pretty.new_document(storage.statistics('2016-12-31', days_focussed=3, minutes_interval=720))
     Today:
         2016-12-31 00:00:00:    0
         2016-12-31 12:00:00:    0
         2017-01-01 00:00:00:    0
-    Last month:
-        2016-12-29:    0
-        2016-12-30:    0
-        2016-12-31:    0
+    Past and coming days:
+        2016-12-28 00:00:00:    0
+        2016-12-29 00:00:00:    0
+        2016-12-30 00:00:00:    0
+        2016-12-31 00:00:00:    0
+        2017-01-01 00:00:00:    0
+        2017-01-02 00:00:00:    0
+        2017-01-03 00:00:00:    0
     By month:
-        2015-02-01:    1
-        2015-03-01:    0
-        2015-04-01:    0
-        2015-05-01:    0
-        2015-06-01:    1
-        2015-07-01:    0
-        2015-08-01:    3
-        2015-09-01:    1
-        2015-10-01:    0
-        2015-11-01:    0
-        2015-12-01:    1
-        2016-01-01:    0
-        2016-02-01:    1
-        2016-03-01:    1
+        2015-02-01 00:00:00:    1
+        2015-03-01 00:00:00:    0
+        2015-04-01 00:00:00:    0
+        2015-05-01 00:00:00:    0
+        2015-06-01 00:00:00:    1
+        2015-07-01 00:00:00:    0
+        2015-08-01 00:00:00:    3
+        2015-09-01 00:00:00:    1
+        2015-10-01 00:00:00:    0
+        2015-11-01 00:00:00:    0
+        2015-12-01 00:00:00:    1
+        2016-01-01 00:00:00:    0
+        2016-02-01 00:00:00:    1
+        2016-03-01 00:00:00:    1
     By year:
-        2015:    7
-        2016:    2
+        2015-01-01 00:00:00:    7
+        2016-01-01 00:00:00:    2
 

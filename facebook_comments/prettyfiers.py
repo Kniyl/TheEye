@@ -51,7 +51,7 @@ class Prettyfier(object):
         for event, data in izip(graph_names, data_iterator):
             self.output.write('{}:\n'.format(event))
             for date, amount in data.iteritems():
-                self.output.write('    {}:    {}\n'.format(date, amount))
+                self.output.write('    {}:    {}\n'.format(date, int(amount)))
 
 
 class HTMLPrettyfier(Prettyfier):

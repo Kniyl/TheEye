@@ -16,6 +16,7 @@ def string_or_stdin(argument, raw_input=raw_input):
 
     return argument if argument != '-' else raw_input()
 
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('-o', '--output', type=argparse.FileType('w'), default=stdout)
