@@ -12,6 +12,10 @@ parser which queries the Facebook Graph API to retrieve comments
 associated to an object.
 """
 
+from collections import OrderedDict
+from itertools import imap, chain
+from operator import itemgetter
+
 import facebook
 import pandas as pd
 from pandas.tseries.frequencies import to_offset
@@ -52,8 +56,7 @@ class TimeSeries(object):
         freq = to_offset(frequency).delta.value
         return pd.Timestamp((time.value // freq) * freq)
 
-
-    def generate_statistics(self, reference_datetime=None,
+    def generate_statistics(self, reference_datetime='now',
                             days_focussed=15, minutes_interval=20):
         """Generate the underlying data at different time scales with
         a particular focus around reference_datetime. Each scale is
@@ -74,10 +77,12 @@ class TimeSeries(object):
         days = pd.date_range(ref - days_offset, ref + days_offset, freq='1D')
         hours = pd.date_range(ref, ref + pd.DateOffset(days=1), freq=frequency)
 
-        yield self.histogram.resample(frequency, how='sum').reindex(hours).fillna(0)
-        yield self.histogram.resample('1D', how='sum').reindex(days).fillna(0)
-        yield self.histogram.resample('1MS', how='sum').fillna(0)
-        yield self.histogram.resample('1AS', how='sum').fillna(0)
+        return imap(OrderedDict, (
+            self.histogram.resample(frequency, how='sum').reindex(hours).fillna(0),
+            self.histogram.resample('1D', how='sum').reindex(days).fillna(0),
+            self.histogram.resample('1MS', how='sum').fillna(0),
+            self.histogram.resample('1AS', how='sum').fillna(0),
+        ))
 
     def pickle(self, path):
         """Write the underlying data to an HDFStore"""
@@ -117,8 +122,11 @@ class FacebookComments(object):
 
         if version is None:
             version = self.API_VERSION
+
         path = 'v{:.1f}/{}/{}'.format(version, object_id, edge)
-        return self._fetch(object_id + '/comments')
+
+        # flatten the various API calls
+        return chain.from_iterable(self._fetch(path))
 
     def _fetch(self, path):
         """Retrieve data from a given path on the Facebook Graph API.
@@ -136,11 +144,15 @@ class FacebookComments(object):
         response = self.graph.get_object(path, **kwargs)
 
         while True:
-            for comment in response['data']:
-                yield comment['created_time']
+            # response['data'] is a list of dictionaries containing
+            # ids and created_time for each element in the given path
+            yield imap(itemgetter('created_time'), response['data'])
+
             try:
+                # follow paging links, only know method to get all data
                 after = response['paging']['cursors']['after']
             except KeyError:
+                # no more data available
                 break
             else:
                 response = self.graph.get_object(path, after=after, **kwargs)

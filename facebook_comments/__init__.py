@@ -1,22 +1,14 @@
 import sys
 from datetime import datetime
-from collections import OrderedDict
 from itertools import imap
+
+import pandas as pd
 
 from .prettyfiers import HTMLPrettyfier
 from .utils import TimeSeries, FacebookComments
 
 
-__all__ = ['parse_object']
-
-
-AVAILABLE_DATE_FORMATS = (
-    "%Y-%m-%d",
-    "%Y/%m/%d",
-    "%Y %m %d",
-    "%m-%d-%Y",
-    "%d/%m/%Y",
-)
+__all__ = ['statistical_analysis', 'read_from_facebook', 'read_from_file']
 
 
 def failsafe_generator(iterable, exc_type=Exception):
@@ -36,52 +28,52 @@ def failsafe_generator(iterable, exc_type=Exception):
         traceback.print_exc()
 
 
-def custom_date(argument):
-    """Try to convert the argument to date by analyzing various formats"""
+def read_from_facebook(user_token, object_id):
+    """Fetch data from the Facebook GraphAPI and store them in an
+    facebook_comments.utils.TimeSeries object.
 
-    for date_format in AVAILABLE_DATE_FORMATS:
-        try:
-            return datetime.strptime(argument, date_format)
-        except ValueError:
-            pass
-    raise ValueError("invalid date '{}': format not recognized.".format(argument))
-
-
-def parse_object(user_token, object_id,
-                 output_stream=sys.stdout,
-                 storage_file=None,
-                 interactive=False,
-                 focus=None,
-                 focus_days=15,
-                 focus_interval=20):
-    """Provide a session to fetch and analyze data from a facebook
-    object. Data are retrieved on behalf of the user represented in
-    the given token.
-
-    In case data should be analyzed from a previously exported session,
-    user_token should be None and object_id should be the path to the
-    file where data were pickled.
+    Data are retrieved on behalf of the user the token is associated
+    with.
     """
 
-    if user_token is None:
-        storage = TimeSeries.unpickle(object_id)
-    else:
-        parser = FacebookComments(user_token)
-        storage = TimeSeries(failsafe_generator(parser.analyze(object_id)))
+    parser = FacebookComments(user_token)
+    return TimeSeries(failsafe_generator(parser.analyze(object_id)))
 
-    if storage_file is not None:
-        storage.pickle(storage_file)
+
+def read_from_file(path):
+    """Fetch data from Facebook that were previously pickled in a file"""
+
+    return TimeSeries.unpickle(path)
+
+
+def statistical_analysis(
+        object_data,
+        output_stream=sys.stdout,
+        interactive=False,
+        focus='now',
+        focus_days=15,
+        focus_interval=20):
+    """Analyze data comming from Facebook Graph API.
+
+    The data must have already been parsed accordingly and be
+    contained in an facebook_comments.utils.TimeSeries object.
+    """
+
+    # We want to be able to differentiate this conversion which can
+    # lead to a real error (no output whatsoever) as opposed to the
+    # one occuring at the end of the while loop acting as control flow
+    focus = pd.Timestamp(focus)
 
     with HTMLPrettyfier(output_stream) as output:
         while True:
-            name = focus.strftime('%d %B %Y') if focus is not None else None
             data = storage.generate_statistics(focus, focus_days, focus_interval)
-            output.new_document(imap(OrderedDict, data), name)
+            name = focus.strftime('%d %B %Y') if focus is not None else None
+            output.new_document(data, name)
 
             if not interactive:
                 break
 
             try:
-                focus = custom_date(raw_input('Focus on a new date> '))
+                focus = pd.Timestamp(raw_input('Focus on a new date> '))
             except ValueError:
                 break

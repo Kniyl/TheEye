@@ -1,7 +1,7 @@
 import argparse
 from sys import stdout
 
-from facebook_comments import parse_object, custom_date
+from facebook_comments import parse_object, read_from_file, read_from_facebook
 
 
 def string_or_stdin(argument, raw_input=raw_input):
@@ -18,7 +18,7 @@ def string_or_stdin(argument, raw_input=raw_input):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('-o', '--output', type=argparse.FileType('w'), default=stdout)
-    parser.add_argument('-f', '--focus-on', '--find', type=custom_date, default=None)
+    parser.add_argument('-f', '--focus-on', '--find', default='now')
     parser.add_argument('-i', '--interactive', action='store_true')
     parser.add_argument('-e', '--export')
     parser.add_argument('-d', '--days', type=int, default=15)
@@ -28,5 +28,15 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
-    parse_object(args.token, args.object, args.output, args.export, args.interactive, args.focus_on)
+    if args.token is None:
+        comments = read_from_file(args.object)
+    else:
+        comments = read_from_facebook(args.token, args.object)
+
+    if args.export is not None:
+        comments.pickle(args.export)
+
+    statistical_analysis(
+            comments, args.output, args.interactive,
+            args.focus_on, args.days, args.minutes)
 
