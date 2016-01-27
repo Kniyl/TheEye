@@ -56,8 +56,8 @@ class TimeSeries(object):
         freq = to_offset(frequency).delta.value
         return pd.Timestamp((time.value // freq) * freq)
 
-    def generate_statistics(self, reference_datetime='now',
-                            days_focussed=15, minutes_interval=20):
+    def statistics(self, reference_datetime='now',
+                   days_focussed=15, minutes_interval=20):
         """Generate the underlying data at different time scales with
         a particular focus around reference_datetime. Each scale is
         broader than the previous one:

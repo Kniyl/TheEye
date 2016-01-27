@@ -1,7 +1,8 @@
 import argparse
 from sys import stdout
 
-from facebook_comments import parse_object, read_from_file, read_from_facebook
+from facebook_comments import (statistical_analysis,
+                               read_from_file, read_from_facebook)
 
 
 def string_or_stdin(argument, raw_input=raw_input):

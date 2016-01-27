@@ -66,7 +66,7 @@ def statistical_analysis(
 
     with HTMLPrettyfier(output_stream) as output:
         while True:
-            data = storage.generate_statistics(focus, focus_days, focus_interval)
+            data = object_data.statistics(focus, focus_days, focus_interval)
             name = focus.strftime('%d %B %Y') if focus is not None else None
             output.new_document(data, name)
 

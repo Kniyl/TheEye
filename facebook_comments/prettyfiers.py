@@ -65,13 +65,15 @@ class HTMLPrettyfier(Prettyfier):
                 ('%H:%M', '%d %b', '%b %Y') # X-axis ticks format
             ))
             for i, (title, data, time_format) in custom_iterator:
-                dom = 'chart{}'.format(i)
+                dom = 'chart-{}'.format(i)
                 canvas = """
-                    <h1>{}</h1>
-                    <div class="wrapper">
-                        <canvas id="{}"></canvas>
+                    <div id="tabs-{}">
+                        <h1>{}</h1>
+                        <div class="wrapper">
+                            <canvas id="{}"></canvas>
+                        </div>
                     </div>
-                """.format(title, dom)
+                """.format(i, title, dom)
 
                 if time_format is None:
                     content = ('value: {}, label: {}'.format(v, k.strftime('%Y'))
@@ -99,6 +101,9 @@ class HTMLPrettyfier(Prettyfier):
                 yield canvas, script
 
         canvas, scripts = izip(*_gen_helper())
+        tabs = ('<li><a href="#tabs-{}">{}</a></li>'.format(i, title)
+                for i, title in enumerate(graph_names))
+
         script_dir = os.path.dirname(os.path.abspath(__file__))
         with open(os.path.join(script_dir, 'Chart.min.js')) as f:
             chartjs = f.read()
@@ -109,6 +114,7 @@ class HTMLPrettyfier(Prettyfier):
         self.output.write(template.format(
             chartjs,
             '\n'.join(scripts),
+            '\n'.join(tabs),
             '\n'.join(canvas)
         ))
 
