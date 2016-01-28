@@ -1,3 +1,4 @@
+#!/bin/env python2
 """CLI built around the facebook_comments package.
 
 Provide ways to customize a call to statistical_analysis from this
