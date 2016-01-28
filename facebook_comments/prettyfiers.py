@@ -1,3 +1,14 @@
+"""This module provides pretty-printing capabilities for collected and
+analyzed data from facebook posts.
+
+Classes of this modules takes in 4 dictionary-like objects to write
+them to a file-like object they are associated with. Each class has a
+different way of writting the data.
+
+These classes also act as context managers and will close their
+associated file on exit if used like so.
+"""
+
 import os.path
 from itertools import izip, izip_longest
 
@@ -58,6 +69,8 @@ class HTMLPrettyfier(Prettyfier):
     """Utility class to output TimeSeries data into an HTML file"""
 
     def _write_data(self, graph_names, data_iterator):
+        """Override Prettyfier behaviour"""
+
         def _gen_helper():
             custom_iterator = enumerate(izip_longest(
                 graph_names, # Titles to display in <h1>

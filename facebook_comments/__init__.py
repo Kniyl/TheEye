@@ -1,3 +1,7 @@
+"""This package provides ways to fetch, store and analyze comments of
+Facebook posts.
+"""
+
 import sys
 from datetime import datetime
 from itertools import imap
