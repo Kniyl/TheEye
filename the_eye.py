@@ -5,7 +5,7 @@ package.
 """
 
 import argparse
-from sys import stdout
+from sys import stdout, stderr
 from itertools import chain
 
 from facebook_comments import (statistical_analysis,
@@ -85,7 +85,10 @@ if __name__ == '__main__':
         comments = read_from_facebook(args.token, args.object)
 
     if args.export is not None:
-        comments.pickle(args.export)
+        try:
+            comments.pickle(args.export)
+        except IOError as e:
+            print >>stderr, 'Error writing exported file:', e.args
 
     statistical_analysis(
             comments, args.output, args.interactive,
